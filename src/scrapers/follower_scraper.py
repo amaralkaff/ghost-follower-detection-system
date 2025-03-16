@@ -50,6 +50,7 @@ class FollowerScraper(ScraperBase):
         self.followers_data = []
         self.user_id = None
         self.data_dir = os.path.join("data", "followers")
+        self.skip_profile_analysis = False  # Default to analyzing profiles
         os.makedirs(self.data_dir, exist_ok=True)
     
     def run(self):
@@ -87,8 +88,12 @@ class FollowerScraper(ScraperBase):
             # Navigate to followers page and extract follower data
             self._extract_followers_from_page()
             
-            # Analyze follower profiles (only a subset to avoid rate limiting)
-            self.analyze_follower_profiles()
+            # Analyze follower profiles (only if not skipped)
+            if not self.skip_profile_analysis:
+                logger.info("Analyzing follower profiles in detail")
+                self.analyze_follower_profiles()
+            else:
+                logger.info("Skipping profile analysis as requested")
             
             # Save the data
             self.save_follower_data()
@@ -507,23 +512,29 @@ class FollowerScraper(ScraperBase):
                 logger.warning(f"Error determining follower count: {str(e)}")
                 follower_count = 0
             
-            # Set a reasonable limit for followers to collect
-            max_followers_to_collect = min(follower_count if follower_count > 0 else 1000, 1000)
+            # Set a reasonable limit for followers to collect - collect all followers if possible
+            max_followers_to_collect = follower_count if follower_count > 0 else 100000
             logger.info(f"Will collect up to {max_followers_to_collect} followers")
             
             # Scroll to load followers
             previously_loaded_followers = 0
             no_new_followers_count = 0
-            max_scrolls = 200  # Set a reasonable limit to avoid infinite scrolling
+            consecutive_same_count = 0
+            max_scrolls = 1000  # Increased to ensure we get all followers
+            last_progress_log = 0
             
             for scroll_count in range(max_scrolls):
-                logger.info(f"Scroll {scroll_count + 1}/{max_scrolls}")
+                if scroll_count % 10 == 0:
+                    logger.info(f"Scroll {scroll_count + 1}/{max_scrolls}")
                 
                 # Extract current followers before scrolling
                 follower_items = self._get_follower_items_from_container(follower_list)
                 current_followers_count = len(follower_items)
                 
-                logger.info(f"Found {current_followers_count} followers so far")
+                # Log progress periodically or when significant progress is made
+                if current_followers_count - last_progress_log >= 100 or scroll_count % 20 == 0:
+                    logger.info(f"Found {current_followers_count} followers so far ({len(self.followers_data)} processed)")
+                    last_progress_log = current_followers_count
                 
                 # Process new followers
                 if current_followers_count > previously_loaded_followers:
@@ -536,14 +547,24 @@ class FollowerScraper(ScraperBase):
                     
                     # Reset the no new followers counter
                     no_new_followers_count = 0
+                    consecutive_same_count = 0
                 else:
                     # No new followers loaded
                     no_new_followers_count += 1
-                    logger.info(f"No new followers loaded (attempt {no_new_followers_count}/3)")
                     
-                    # If we've tried 3 times with no new followers, assume we've reached the end
-                    if no_new_followers_count >= 3:
-                        logger.info("No new followers after 3 scroll attempts, assuming all followers loaded")
+                    # If the count hasn't changed for several scrolls, we might be at the end
+                    if current_followers_count == previously_loaded_followers:
+                        consecutive_same_count += 1
+                    else:
+                        consecutive_same_count = 0
+                    
+                    if scroll_count % 10 == 0:
+                        logger.info(f"No new followers loaded (attempt {no_new_followers_count}/5)")
+                    
+                    # If we've tried 5 times with no new followers, assume we've reached the end
+                    # Also check if we've had the same count for 10 consecutive scrolls
+                    if no_new_followers_count >= 5 or consecutive_same_count >= 10:
+                        logger.info(f"No new followers after multiple scroll attempts, assuming all followers loaded")
                         break
                 
                 # Check if we've collected enough followers
@@ -576,12 +597,12 @@ class FollowerScraper(ScraperBase):
                     logger.warning(f"Error scrolling: {str(e)}")
                 
                 # Wait for new content to load with random delay
-                self.human_behavior.random_sleep(2, 4)
+                self.human_behavior.random_sleep(1, 2)  # Shorter delay to speed up collection
                 
                 # Add some randomness to scrolling behavior
-                if random.random() < 0.2:  # 20% chance to pause scrolling
+                if random.random() < 0.1:  # 10% chance to pause scrolling
                     logger.info("Taking a short break from scrolling")
-                    self.human_behavior.random_sleep(2, 5)
+                    self.human_behavior.random_sleep(2, 4)
             
             logger.info(f"Finished extracting followers. Total followers collected: {len(self.followers_data)}")
             

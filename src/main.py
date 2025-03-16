@@ -75,13 +75,14 @@ def setup_credentials():
     logger.error("Failed to set up credential encryption")
     return False, None
 
-def collect_follower_data(browser, target_username=None):
+def collect_follower_data(browser, target_username=None, skip_profile_analysis=True):
     """
     Collect follower data using the follower scraper.
     
     Args:
         browser: Selenium WebDriver instance
         target_username: Username to collect followers for (if None, uses logged-in user)
+        skip_profile_analysis: If True, only collect basic follower data without analyzing profiles
     
     Returns:
         List of follower data dictionaries
@@ -93,6 +94,8 @@ def collect_follower_data(browser, target_username=None):
     follower_scraper.browser = browser
     # Set flag to indicate browser was passed externally
     follower_scraper._browser_passed_externally = True
+    # Set flag to skip profile analysis if requested
+    follower_scraper.skip_profile_analysis = skip_profile_analysis
     
     try:
         # Run the scraper
