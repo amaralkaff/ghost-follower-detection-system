@@ -1,4 +1,4 @@
-# Instagram Ghost Follower Detection System
+# InstaLy Ghost Follower Detection System
 
 ## Project Overview
 This system uses web scraping and machine learning to identify and report "ghost followers" - accounts that follow you but don't engage with your content. The pipeline automatically collects data from Instagram posts, stories, and reels, analyzes engagement patterns, and generates reports to help you identify inactive followers.
@@ -34,6 +34,8 @@ INSTAGRAM_USERNAME=your_username
 INSTAGRAM_PASSWORD=your_password
 ```
 
+Alternatively, you can use the secure credential storage system which will prompt you to set up encrypted credentials on first run.
+
 ### 5. Run the Application
 ```bash
 python -m src.main
@@ -43,6 +45,7 @@ python -m src.main
 ```
 ├── data/                  # Data storage directory
 ├── logs/                  # Log files
+├── credentials/           # Encrypted credentials storage
 ├── src/                   # Source code
 │   ├── config/            # Configuration files
 │   ├── data/              # Data processing modules
@@ -96,18 +99,18 @@ python -m src.main
   - [x] Add random pauses between actions
 
 ### Phase 3: Login Automation
-- [ ] Create secure credential storage system:
-  - [ ] Implement environment variable integration
-  - [ ] Set up encrypted credential storage
-- [ ] Develop Instagram login automation:
-  - [ ] Locate and interact with login form elements
-  - [ ] Handle two-factor authentication
-  - [ ] Implement CAPTCHA detection and manual intervention request
-  - [ ] Create session cookie management for future logins
-- [ ] Implement login verification:
-  - [ ] Check for successful login indicators
-  - [ ] Handle "suspicious login attempt" notifications
-  - [ ] Create credential rotation system (if using multiple accounts)
+- [x] Create secure credential storage system:
+  - [x] Implement environment variable integration
+  - [x] Set up encrypted credential storage
+- [x] Develop Instagram login automation:
+  - [x] Locate and interact with login form elements
+  - [x] Handle two-factor authentication
+  - [x] Implement CAPTCHA detection and manual intervention request
+  - [x] Create session cookie management for future logins
+- [x] Implement login verification:
+  - [x] Check for successful login indicators
+  - [x] Handle "suspicious login attempt" notifications
+  - [x] Create credential rotation system (if using multiple accounts)
 
 ### Phase 4: Follower Data Collection
 - [ ] Develop follower list scraper:
@@ -307,6 +310,24 @@ python -m src.main
 - **Visualization**: Matplotlib, Seaborn, Plotly
 - **Dashboard**: Streamlit
 - **Storage**: CSV files, SQLite/PostgreSQL
+- **Security**: Cryptography for credential encryption
+
+## Secure Credential Storage
+
+The system now includes a secure credential storage mechanism that:
+
+1. Encrypts Instagram credentials using the cryptography library
+2. Stores encrypted credentials on disk with a master password
+3. Supports two-factor authentication
+4. Handles suspicious login attempts
+5. Manages session cookies for faster subsequent logins
+
+On first run, you'll be prompted to:
+- Enter your Instagram credentials
+- Create a master password for encryption
+- Specify if two-factor authentication is enabled
+
+For subsequent runs, you'll only need to enter your master password to decrypt the stored credentials.
 
 ## Ethical Considerations
 

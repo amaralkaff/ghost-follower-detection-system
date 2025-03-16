@@ -35,14 +35,11 @@ def get_random_proxy():
 
 def setup_browser():
     """Set up and return an undetected Chrome browser instance."""
-    options = Options()
+    # Create Chrome options
+    options = uc.ChromeOptions()
     
     # Set user agent
     options.add_argument(f'user-agent={USER_AGENT}')
-    
-    # Set headless mode if enabled
-    if HEADLESS_MODE:
-        options.add_argument('--headless')
     
     # Add proxy if enabled
     proxy = get_random_proxy()
@@ -58,11 +55,28 @@ def setup_browser():
     options.add_argument('--disable-browser-side-navigation')
     options.add_argument('--disable-gpu')
     
-    # Create and return the browser instance
-    browser = uc.Chrome(options=options)
-    browser.set_page_load_timeout(REQUEST_TIMEOUT)
+    # Handle headless mode
+    if HEADLESS_MODE:
+        options.add_argument('--headless')
     
-    return browser
+    try:
+        # Create and return the browser instance with headless parameter
+        browser = uc.Chrome(
+            options=options,
+            use_subprocess=True
+        )
+        browser.set_page_load_timeout(REQUEST_TIMEOUT)
+        return browser
+    except Exception as e:
+        print(f"Error creating Chrome instance with options: {str(e)}")
+        # Fallback to a simpler configuration
+        try:
+            browser = uc.Chrome(use_subprocess=True)
+            browser.set_page_load_timeout(REQUEST_TIMEOUT)
+            return browser
+        except Exception as e:
+            print(f"Error creating Chrome instance with fallback: {str(e)}")
+            raise
 
 def random_sleep(min_seconds=1, max_seconds=3):
     """Sleep for a random amount of time between min and max seconds."""

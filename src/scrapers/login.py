@@ -5,9 +5,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-from src.config.config import INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD, INSTAGRAM_2FA_ENABLED
+from src.config.config import INSTAGRAM_2FA_ENABLED
 from src.utils.browser import wait_for_element, random_sleep, element_exists
 from src.utils.logger import get_default_logger
+from src.utils.credential_manager import CredentialManager
 
 # Get logger
 logger = get_default_logger()
@@ -55,15 +56,26 @@ def load_cookies(browser, username):
     logger.info(f"Cookies loaded from {cookies_file}")
     return True
 
-def handle_two_factor_auth(browser):
+def handle_two_factor_auth(browser, two_factor_enabled=None):
     """
     Handle two-factor authentication if needed.
     
     This function checks for various 2FA UI elements that Instagram might show
     and handles the verification code input process.
+    
+    Args:
+        browser: The browser instance
+        two_factor_enabled: Override for 2FA setting (from credential manager)
+        
+    Returns:
+        True if 2FA handled successfully or not needed, False otherwise
     """
+    # Determine if 2FA is enabled
+    if two_factor_enabled is None:
+        two_factor_enabled = INSTAGRAM_2FA_ENABLED
+        
     # If 2FA is disabled in config, skip the check
-    if not INSTAGRAM_2FA_ENABLED:
+    if not two_factor_enabled:
         logger.info("2FA is disabled in config, skipping 2FA check")
         return True
         
@@ -125,7 +137,7 @@ def handle_two_factor_auth(browser):
                                 resend_button.click()
                                 logger.info("Requested new 2FA code")
                                 random_sleep(3, 5)
-                                return handle_two_factor_auth(browser)  # Recursive call to try again
+                                return handle_two_factor_auth(browser, two_factor_enabled)  # Recursive call to try again
                     
                     return False
                 
@@ -193,26 +205,60 @@ def is_logged_in(browser):
     
     return profile_icon and not login_button
 
-def login_to_instagram(browser):
+def login_to_instagram(browser, use_encrypted_credentials=True, master_password=None):
     """
     Log in to Instagram using the provided credentials.
     
     Args:
         browser: The browser instance
+        use_encrypted_credentials: Whether to use encrypted credentials
+        master_password: Master password for decrypting credentials
         
     Returns:
         True if login successful, False otherwise
     """
-    if not INSTAGRAM_USERNAME or not INSTAGRAM_PASSWORD:
-        logger.error("Instagram credentials not found in environment variables")
-        return False
+    # Get credentials
+    credential_manager = CredentialManager()
     
-    logger.info(f"Attempting to log in as {INSTAGRAM_USERNAME}")
-    logger.info(f"2FA is {'enabled' if INSTAGRAM_2FA_ENABLED else 'disabled'} in configuration")
+    if use_encrypted_credentials:
+        # Set up encryption with master password
+        if master_password:
+            credential_manager.setup_encryption(master_password)
+        else:
+            # Try to set up encryption with default password
+            if not credential_manager.setup_encryption():
+                logger.error("Failed to set up credential encryption")
+                return False
+        
+        # Get credentials
+        credentials = credential_manager.get_credentials()
+        if not credentials:
+            logger.error("Could not retrieve Instagram credentials")
+            return False
+        
+        username = credentials["username"]
+        password = credentials["password"]
+        two_factor_enabled = credentials["two_factor_enabled"]
+    else:
+        # Store credentials from environment variables for future use
+        credential_manager.store_credentials_from_env()
+        
+        # Get credentials from environment variables
+        credentials = credential_manager.get_credentials()
+        if not credentials:
+            logger.error("Instagram credentials not found in environment variables")
+            return False
+        
+        username = credentials["username"]
+        password = credentials["password"]
+        two_factor_enabled = credentials["two_factor_enabled"]
+    
+    logger.info(f"Attempting to log in as {username}")
+    logger.info(f"2FA is {'enabled' if two_factor_enabled else 'disabled'} in configuration")
     
     # Try to use cookies first
     browser.get(INSTAGRAM_URL)
-    if load_cookies(browser, INSTAGRAM_USERNAME):
+    if load_cookies(browser, username):
         browser.refresh()
         random_sleep(3, 5)
         
@@ -233,7 +279,7 @@ def login_to_instagram(browser):
         return False
     
     username_input.clear()
-    username_input.send_keys(INSTAGRAM_USERNAME)
+    username_input.send_keys(username)
     random_sleep(1, 2)
     
     # Enter password
@@ -243,7 +289,7 @@ def login_to_instagram(browser):
         return False
     
     password_input.clear()
-    password_input.send_keys(INSTAGRAM_PASSWORD)
+    password_input.send_keys(password)
     random_sleep(1, 2)
     
     # Click login button
@@ -256,7 +302,7 @@ def login_to_instagram(browser):
     random_sleep(5, 7)
     
     # Handle two-factor authentication if needed
-    if not handle_two_factor_auth(browser):
+    if not handle_two_factor_auth(browser, two_factor_enabled):
         logger.error("Two-factor authentication failed")
         return False
     
@@ -276,7 +322,7 @@ def login_to_instagram(browser):
         logger.info("Successfully logged in to Instagram")
         
         # Save cookies for future use
-        save_cookies(browser, INSTAGRAM_USERNAME)
+        save_cookies(browser, username)
         
         return True
     else:

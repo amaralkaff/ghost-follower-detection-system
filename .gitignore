@@ -32,6 +32,8 @@ config.ini
 *.pem
 *.key
 proxy_list.txt
+credentials/
+cookies/
 
 # Logs and databases
 *.log
