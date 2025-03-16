@@ -61,8 +61,12 @@ class FollowerScraper(ScraperBase):
         logger.info("Starting follower data collection")
         
         try:
-            # Start the browser
-            session_loaded = self.start()
+            # Only start the browser if it doesn't already exist
+            if not self.browser:
+                session_loaded = self.start()
+                logger.info(f"Started new browser session. Session loaded: {session_loaded}")
+            else:
+                logger.info("Using existing browser session")
             
             # Set target username to logged-in user if not specified
             if not self.target_username:
@@ -91,8 +95,11 @@ class FollowerScraper(ScraperBase):
             logger.error(f"Follower scraping failed: {str(e)}")
             raise
         finally:
-            # Stop the browser
-            self.stop()
+            # Only stop the browser if we started it
+            if not hasattr(self, '_browser_passed_externally') or not self._browser_passed_externally:
+                self.stop()
+            else:
+                logger.info("Not closing browser as it was passed externally")
     
     @retry_on_exception(max_retries=3)
     @handle_selenium_exceptions
@@ -943,55 +950,85 @@ class FollowerScraper(ScraperBase):
                 if follower.get("detailed_profile_analyzed", False):
                     continue
                 
+                # Validate username - skip if it doesn't look like a valid Instagram username
+                username = follower["username"]
+                if not self._is_valid_instagram_username(username):
+                    logger.warning(f"Skipping invalid username: {username}")
+                    continue
+                
                 # Navigate to follower profile
-                profile_url = PROFILE_URL.format(follower["username"])
-                logger.info(f"Analyzing profile for {follower['username']}")
+                profile_url = PROFILE_URL.format(username)
+                logger.info(f"Analyzing profile for {username}")
                 
                 self.navigate_to(profile_url)
                 
-                # Wait for the page to load
-                self.human_behavior.random_sleep(3, 5)
-                
-                # Try to extract profile data from page source
-                page_source = self.browser.page_source
+                # Wait for profile to load
+                try:
+                    # Wait for profile stats to load
+                    wait_for_element(self.browser, PROFILE_STATS, timeout=15)
+                except TimeoutException:
+                    logger.warning(f"Timeout waiting for profile stats for {username}")
+                    continue
                 
                 # Extract profile statistics
                 profile_stats = self._extract_profile_statistics_ui()
+                if profile_stats:
+                    follower.update(profile_stats)
                 
                 # Determine account type
                 account_type = self._determine_account_type_ui()
+                if account_type:
+                    follower["account_type"] = account_type
                 
                 # Check if account is private
                 is_private = self._is_account_private_ui()
+                follower["is_private"] = is_private
                 
-                # Update follower data with detailed information
-                follower.update({
-                    "posts_count": profile_stats.get("posts", 0),
-                    "followers_count": profile_stats.get("followers", 0),
-                    "following_count": profile_stats.get("following", 0),
-                    "account_type": account_type,
-                    "is_private": is_private,
-                    "detailed_profile_analyzed": True,
-                    "profile_analyzed_at": datetime.now().isoformat()
-                })
-                
+                # Mark as analyzed
+                follower["detailed_profile_analyzed"] = True
                 analyzed_count += 1
                 
-                # Log progress
-                if analyzed_count % 5 == 0:
-                    logger.info(f"Analyzed {analyzed_count} profiles so far")
-                    
-                    # Save intermediate results
-                    self.save_follower_data()
-                
                 # Add random delay between profile visits
-                self.human_behavior.random_sleep(3, 5)
+                self.human_behavior.random_sleep(2, 5)
                 
             except Exception as e:
-                logger.warning(f"Error analyzing profile for {follower['username']}: {str(e)}")
+                logger.error(f"Error analyzing profile for {follower.get('username', 'unknown')}: {str(e)}")
                 continue
         
-        logger.info(f"Completed detailed analysis of {analyzed_count} follower profiles")
+        logger.info(f"Analyzed {analyzed_count} follower profiles in detail")
+    
+    def _is_valid_instagram_username(self, username):
+        """
+        Check if a string looks like a valid Instagram username.
+        
+        Args:
+            username: The username to validate
+            
+        Returns:
+            bool: True if the username appears valid, False otherwise
+        """
+        # Skip usernames that are clearly not valid
+        if not username or len(username) < 3:
+            return False
+            
+        # Skip usernames that contain URL parameters or special characters
+        if any(char in username for char in ['?', '&', '=', '/', '.', ' ']):
+            return False
+            
+        # Skip common navigation elements that might be mistaken for usernames
+        invalid_usernames = [
+            'login', 'signup', 'explore', 'about', 'press', 'api', 'jobs', 'privacy', 
+            'terms', 'hashtag', 'locations', 'accounts', 'emailsignup', 'next', 'previous',
+            'direct', 'inbox', 'activity', 'settings', 'help', 'support'
+        ]
+        
+        if username.lower() in invalid_usernames:
+            return False
+            
+        # Basic regex pattern for Instagram usernames (letters, numbers, underscores, periods)
+        import re
+        pattern = r'^[a-zA-Z0-9_.]{1,30}$'
+        return bool(re.match(pattern, username))
     
     def _extract_profile_statistics_ui(self):
         """
