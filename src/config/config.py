@@ -7,6 +7,7 @@ load_dotenv()
 # Instagram credentials
 INSTAGRAM_USERNAME = os.getenv('INSTAGRAM_USERNAME')
 INSTAGRAM_PASSWORD = os.getenv('INSTAGRAM_PASSWORD')
+INSTAGRAM_2FA_ENABLED = os.getenv('INSTAGRAM_2FA_ENABLED', 'True').lower() == 'true'
 
 # Browser settings
 HEADLESS_MODE = os.getenv('HEADLESS_MODE', 'False').lower() == 'true'

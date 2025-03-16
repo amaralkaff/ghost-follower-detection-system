@@ -5,7 +5,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-from src.config.config import INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD
+from src.config.config import INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD, INSTAGRAM_2FA_ENABLED
 from src.utils.browser import wait_for_element, random_sleep, element_exists
 from src.utils.logger import get_default_logger
 
@@ -25,6 +25,11 @@ NOTIFICATIONS_BUTTON = "//button[contains(text(), 'Not Now')]"
 TWO_FACTOR_INPUT = "input[name='verificationCode']"
 TWO_FACTOR_BUTTON = "button[type='button']"
 SUSPICIOUS_LOGIN_BUTTON = "//button[contains(text(), 'This Was Me')]"
+# Additional 2FA selectors
+TWO_FACTOR_CODE_INPUT = "input[aria-label='Security code']"
+TWO_FACTOR_CONFIRM_BUTTON = "//button[contains(text(), 'Confirm')]"
+TWO_FACTOR_HEADER = "//h2[contains(text(), 'Enter Confirmation Code')]"
+TWO_FACTOR_RESEND_BUTTON = "//button[contains(text(), 'Resend Code')]"
 
 def save_cookies(browser, username):
     """Save browser cookies to a file."""
@@ -51,32 +56,87 @@ def load_cookies(browser, username):
     return True
 
 def handle_two_factor_auth(browser):
-    """Handle two-factor authentication if needed."""
-    try:
-        # Check if 2FA input is present
-        two_factor_input = wait_for_element(browser, TWO_FACTOR_INPUT, timeout=5)
+    """
+    Handle two-factor authentication if needed.
+    
+    This function checks for various 2FA UI elements that Instagram might show
+    and handles the verification code input process.
+    """
+    # If 2FA is disabled in config, skip the check
+    if not INSTAGRAM_2FA_ENABLED:
+        logger.info("2FA is disabled in config, skipping 2FA check")
+        return True
         
-        if two_factor_input:
+    try:
+        # Check for different possible 2FA indicators
+        two_factor_header = element_exists(browser, TWO_FACTOR_HEADER, by=By.XPATH)
+        two_factor_input1 = element_exists(browser, TWO_FACTOR_INPUT)
+        two_factor_input2 = element_exists(browser, TWO_FACTOR_CODE_INPUT)
+        
+        if two_factor_header or two_factor_input1 or two_factor_input2:
             logger.info("Two-factor authentication detected")
             
+            # Take a screenshot to help the user see what's happening
+            screenshot_path = os.path.join("logs", "2fa_screen.png")
+            browser.save_screenshot(screenshot_path)
+            logger.info(f"2FA screen screenshot saved to {screenshot_path}")
+            
             # Ask user for verification code
-            verification_code = input("Enter the verification code sent to your device: ")
+            verification_code = input("\n\n*** TWO-FACTOR AUTHENTICATION REQUIRED ***\nEnter the verification code sent to your device: ")
             
-            # Enter verification code
-            two_factor_input.send_keys(verification_code)
+            # Try different input fields
+            input_field = None
+            if two_factor_input1:
+                input_field = wait_for_element(browser, TWO_FACTOR_INPUT)
+            elif two_factor_input2:
+                input_field = wait_for_element(browser, TWO_FACTOR_CODE_INPUT)
             
-            # Click confirm button
-            two_factor_button = wait_for_element(browser, TWO_FACTOR_BUTTON)
-            if two_factor_button:
-                two_factor_button.click()
-                random_sleep(3, 5)
+            if not input_field:
+                logger.error("Could not find 2FA input field")
+                return False
+            
+            # Clear any existing text and enter verification code
+            input_field.clear()
+            input_field.send_keys(verification_code)
+            random_sleep(1, 2)
+            
+            # Try different confirm buttons
+            confirm_button = None
+            if element_exists(browser, TWO_FACTOR_BUTTON):
+                confirm_button = wait_for_element(browser, TWO_FACTOR_BUTTON)
+            elif element_exists(browser, TWO_FACTOR_CONFIRM_BUTTON, by=By.XPATH):
+                confirm_button = wait_for_element(browser, TWO_FACTOR_CONFIRM_BUTTON, by=By.XPATH)
+            
+            if confirm_button:
+                confirm_button.click()
+                logger.info("Submitted 2FA verification code")
+                random_sleep(5, 7)  # Wait longer after 2FA submission
+                
+                # Check if 2FA was successful
+                if element_exists(browser, TWO_FACTOR_HEADER, by=By.XPATH) or element_exists(browser, TWO_FACTOR_INPUT) or element_exists(browser, TWO_FACTOR_CODE_INPUT):
+                    logger.error("2FA verification failed - incorrect code or expired")
+                    
+                    # Check if resend button is available
+                    if element_exists(browser, TWO_FACTOR_RESEND_BUTTON, by=By.XPATH):
+                        resend = input("Would you like to resend the code? (y/n): ").lower()
+                        if resend == 'y':
+                            resend_button = wait_for_element(browser, TWO_FACTOR_RESEND_BUTTON, by=By.XPATH)
+                            if resend_button:
+                                resend_button.click()
+                                logger.info("Requested new 2FA code")
+                                random_sleep(3, 5)
+                                return handle_two_factor_auth(browser)  # Recursive call to try again
+                    
+                    return False
+                
                 return True
             else:
-                logger.error("Could not find two-factor confirmation button")
+                logger.error("Could not find 2FA confirmation button")
                 return False
     except Exception as e:
-        logger.info(f"No two-factor authentication required: {str(e)}")
+        logger.info(f"Error during 2FA handling: {str(e)}")
     
+    # If we reach here, either there was no 2FA or we couldn't detect it properly
     return True
 
 def handle_suspicious_login(browser):
@@ -148,6 +208,7 @@ def login_to_instagram(browser):
         return False
     
     logger.info(f"Attempting to log in as {INSTAGRAM_USERNAME}")
+    logger.info(f"2FA is {'enabled' if INSTAGRAM_2FA_ENABLED else 'disabled'} in configuration")
     
     # Try to use cookies first
     browser.get(INSTAGRAM_URL)
@@ -220,4 +281,10 @@ def login_to_instagram(browser):
         return True
     else:
         logger.error("Login failed")
+        
+        # Take a screenshot of the failed login state
+        screenshot_path = os.path.join("logs", "login_failed.png")
+        browser.save_screenshot(screenshot_path)
+        logger.info(f"Login failure screenshot saved to {screenshot_path}")
+        
         return False 
