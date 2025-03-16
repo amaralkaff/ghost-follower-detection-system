@@ -15,6 +15,7 @@ from src.scrapers.scraper_base import ScraperBase
 from src.utils.browser import wait_for_element, random_sleep, element_exists, setup_browser, scroll_to_bottom
 from src.utils.logger import get_default_logger
 from src.utils.error_handler import retry_on_exception, handle_selenium_exceptions, log_execution_time
+from src.utils.human_behavior import HumanBehaviorSimulator
 
 # Get logger
 logger = get_default_logger()
@@ -67,6 +68,10 @@ class FollowerScraper(ScraperBase):
                 logger.info(f"Started new browser session. Session loaded: {session_loaded}")
             else:
                 logger.info("Using existing browser session")
+                # Initialize human behavior simulator if using existing browser
+                if not self.human_behavior:
+                    self.human_behavior = HumanBehaviorSimulator(self.browser)
+                    logger.info("Initialized human behavior simulator for existing browser")
             
             # Set target username to logged-in user if not specified
             if not self.target_username:
