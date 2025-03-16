@@ -523,6 +523,11 @@ class FollowerScraper(ScraperBase):
             max_scrolls = 1000  # Increased to ensure we get all followers
             last_progress_log = 0
             
+            # Initialize scroll tracking variables
+            previous_height = self.browser.execute_script("return arguments[0].scrollHeight", follower_list)
+            previous_position = self.browser.execute_script("return arguments[0].scrollTop", follower_list)
+            no_progress_count = 0
+            
             for scroll_count in range(max_scrolls):
                 if scroll_count % 10 == 0:
                     logger.info(f"Scroll {scroll_count + 1}/{max_scrolls}")
@@ -548,6 +553,11 @@ class FollowerScraper(ScraperBase):
                     # Reset the no new followers counter
                     no_new_followers_count = 0
                     consecutive_same_count = 0
+                    no_progress_count = 0
+                    
+                    # Save checkpoint every 100 new followers
+                    if len(self.followers_data) % 100 == 0:
+                        self._save_followers_data_checkpoint()
                 else:
                     # No new followers loaded
                     no_new_followers_count += 1
@@ -572,32 +582,126 @@ class FollowerScraper(ScraperBase):
                     logger.info(f"Collected {len(self.followers_data)} followers, stopping scrolling")
                     break
                 
+                # Check if we've reached the end of the follower list
+                if self._is_at_end_of_follower_list(follower_list):
+                    logger.info("Detected end of follower list, stopping scrolling")
+                    break
+                
+                # Try clicking "Load More" button if it exists
+                if scroll_count % 5 == 0:  # Try every 5 scrolls
+                    if self._try_click_load_more_button(follower_list):
+                        logger.info("Clicked 'Load More' button, waiting for new content")
+                        self.human_behavior.random_sleep(2, 3)
+                        # Reset counters since we've taken action
+                        no_new_followers_count = 0
+                        consecutive_same_count = 0
+                        no_progress_count = 0
+                        continue
+                
                 # Scroll the follower list
                 try:
-                    # Try different scrolling methods
-                    try:
-                        # Method 1: Use JavaScript to scroll
-                        self.browser.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", follower_list)
-                    except:
+                    # Try different scrolling methods with more aggressive scrolling
+                    scroll_attempts = 0
+                    scroll_success = False
+                    
+                    while scroll_attempts < 3 and not scroll_success:
                         try:
-                            # Method 2: Alternative JavaScript scrolling
-                            self.browser.execute_script(
-                                "arguments[0].scrollTo(0, arguments[0].scrollHeight)", follower_list)
+                            # Method 1: Scroll to a specific position
+                            current_height = self.browser.execute_script("return arguments[0].scrollHeight", follower_list)
+                            visible_height = self.browser.execute_script("return arguments[0].clientHeight", follower_list)
+                            current_position = self.browser.execute_script("return arguments[0].scrollTop", follower_list)
+                            
+                            # Calculate new position (scroll down by 80% of the visible height)
+                            new_position = current_position + (visible_height * 0.8)
+                            
+                            # Scroll to the new position
+                            self.browser.execute_script(f"arguments[0].scrollTop = {new_position}", follower_list)
+                            scroll_success = True
                         except:
+                            scroll_attempts += 1
                             try:
-                                # Method 3: Use ActionChains to scroll
-                                from selenium.webdriver.common.action_chains import ActionChains
-                                from selenium.webdriver.common.keys import Keys
-                                
-                                # Move to the follower list and press PAGE_DOWN
-                                ActionChains(self.browser).move_to_element(follower_list).send_keys(Keys.PAGE_DOWN).perform()
-                            except Exception as e:
-                                logger.warning(f"All scrolling methods failed: {str(e)}")
+                                # Method 2: Use JavaScript to scroll down by a fixed amount
+                                self.browser.execute_script("arguments[0].scrollTop += 500", follower_list)
+                                scroll_success = True
+                            except:
+                                scroll_attempts += 1
+                                try:
+                                    # Method 3: Use ActionChains to scroll
+                                    from selenium.webdriver.common.action_chains import ActionChains
+                                    from selenium.webdriver.common.keys import Keys
+                                    
+                                    # Move to the follower list and press PAGE_DOWN
+                                    ActionChains(self.browser).move_to_element(follower_list).send_keys(Keys.PAGE_DOWN).perform()
+                                    scroll_success = True
+                                except:
+                                    scroll_attempts += 1
+                    
+                    if not scroll_success:
+                        logger.warning("All scrolling methods failed, trying one last approach")
+                        try:
+                            # Last resort: Try to click on an element at the bottom of the list to force scrolling
+                            follower_items = self._get_follower_items_from_container(follower_list)
+                            if follower_items and len(follower_items) > 0:
+                                last_item = follower_items[-1]
+                                ActionChains(self.browser).move_to_element(last_item).perform()
+                        except Exception as e:
+                            logger.warning(f"Last resort scrolling also failed: {str(e)}")
+                
                 except Exception as e:
                     logger.warning(f"Error scrolling: {str(e)}")
                 
                 # Wait for new content to load with random delay
                 self.human_behavior.random_sleep(1, 2)  # Shorter delay to speed up collection
+                
+                # Check if we're making progress with scrolling
+                is_making_progress, current_height, current_position = self._is_making_scrolling_progress(
+                    follower_list, previous_height, previous_position)
+                
+                if not is_making_progress:
+                    no_progress_count += 1
+                    logger.debug(f"No scrolling progress detected (count: {no_progress_count}/3)")
+                    
+                    if no_progress_count >= 3:
+                        # Try more aggressive scrolling methods
+                        logger.info("No scrolling progress after multiple attempts, trying aggressive methods")
+                        
+                        try:
+                            # Method 1: Scroll to bottom
+                            self.browser.execute_script(
+                                "arguments[0].scrollTop = arguments[0].scrollHeight", follower_list)
+                            logger.debug("Applied aggressive scroll to bottom")
+                        except Exception as e:
+                            logger.debug(f"Aggressive scroll to bottom failed: {str(e)}")
+                            
+                            try:
+                                # Method 2: Use keyboard shortcuts
+                                from selenium.webdriver.common.action_chains import ActionChains
+                                from selenium.webdriver.common.keys import Keys
+                                
+                                # Focus on the element and press End key
+                                ActionChains(self.browser).move_to_element(follower_list).click().send_keys(Keys.END).perform()
+                                logger.debug("Applied aggressive keyboard END key")
+                            except Exception as e:
+                                logger.debug(f"Aggressive keyboard END failed: {str(e)}")
+                                
+                                try:
+                                    # Method 3: Click at the bottom of the container
+                                    height = follower_list.size['height']
+                                    ActionChains(self.browser).move_to_element_with_offset(
+                                        follower_list, 10, height - 10).click().perform()
+                                    logger.debug("Applied aggressive click at bottom")
+                                except Exception as e:
+                                    logger.debug(f"Aggressive click at bottom failed: {str(e)}")
+                        
+                        # Reset counter after aggressive attempts
+                        no_progress_count = 0
+                else:
+                    # Reset counter if we're making progress
+                    no_progress_count = 0
+                
+                # Update previous values for next comparison
+                previous_height = current_height
+                previous_position = current_position
                 
                 # Add some randomness to scrolling behavior
                 if random.random() < 0.1:  # 10% chance to pause scrolling
@@ -693,99 +797,102 @@ class FollowerScraper(ScraperBase):
     
     def _process_follower_items(self, follower_items):
         """
-        Process follower items and extract data.
+        Process follower items to extract username and other available information.
         
         Args:
             follower_items: List of follower item elements
         """
         for item in follower_items:
             try:
-                # Extract username with multiple approaches
+                # Extract username
                 username = None
-                fullname = ""
-                profile_pic_url = ""
-                is_verified = False
                 
-                # Approach 1: Extract from href attribute
-                try:
-                    links = item.find_elements(By.TAG_NAME, "a")
-                    for link in links:
-                        href = link.get_attribute("href")
-                        if href and "instagram.com/" in href and "/p/" not in href and "/explore/" not in href:
-                            username = href.split("/")[-2] if href.endswith("/") else href.split("/")[-1]
-                            break
-                except:
-                    pass
-                
-                # If we still don't have a username, try other approaches
-                if not username:
+                # Try to find username from links
+                links = item.find_elements(By.TAG_NAME, "a")
+                for link in links:
                     try:
-                        # Look for elements with a username
+                        href = link.get_attribute("href")
+                        if href and "instagram.com/" in href:
+                            # Extract username from URL
+                            username_match = re.search(r'instagram\.com/([^/]+)/?$', href)
+                            if username_match:
+                                username = username_match.group(1)
+                                break
+                    except:
+                        continue
+                
+                # If we couldn't find username from links, try other methods
+                if not username:
+                    # Try to find username from text content
+                    try:
+                        # Look for elements that might contain the username
                         username_elements = item.find_elements(By.CSS_SELECTOR, "span, div")
                         for element in username_elements:
-                            text = element.text
-                            if text and text.startswith("@"):
-                                username = text[1:]  # Remove the @ symbol
-                                break
-                            elif text and not text.isspace() and " " not in text and len(text) > 2:
-                                # This might be a username
+                            text = element.text.strip()
+                            # Username is typically the first word in the text
+                            if text and not text.startswith('@') and ' ' not in text:
                                 username = text
                                 break
                     except:
                         pass
                 
-                # Skip if no username found
+                # Skip if we couldn't find a username
                 if not username:
                     continue
                 
-                # Skip if already processed
-                if username in [f["username"] for f in self.followers_data]:
+                # Skip if username is already in our list
+                if username in [follower['username'] for follower in self.followers_data]:
                     continue
                 
-                # Extract full name
+                # Extract additional information if available
+                follower_info = {
+                    'username': username,
+                    'full_name': '',
+                    'is_verified': False,
+                    'profile_pic_url': '',
+                    'scraped_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+                
+                # Try to extract full name
                 try:
-                    # Try different approaches to find the full name
+                    # Full name is often in a separate element
                     name_elements = item.find_elements(By.CSS_SELECTOR, "span, div")
                     for element in name_elements:
-                        text = element.text
-                        if text and text != username and " " in text:
-                            fullname = text
-                            break
-                except:
-                    pass
-                
-                # Extract profile picture
-                try:
-                    img_elements = item.find_elements(By.TAG_NAME, "img")
-                    for img in img_elements:
-                        src = img.get_attribute("src")
-                        if src and ("profile_pic" in src or "instagram" in src):
-                            profile_pic_url = src
+                        text = element.text.strip()
+                        # Full name typically comes after username and might contain spaces
+                        if text and text != username and ' ' in text:
+                            follower_info['full_name'] = text
                             break
                 except:
                     pass
                 
                 # Check if verified
                 try:
-                    verified_badges = item.find_elements(By.CSS_SELECTOR, "span[aria-label*='Verified']")
-                    is_verified = len(verified_badges) > 0
+                    verified_badges = item.find_elements(By.CSS_SELECTOR, 
+                        "span[aria-label='Verified'], span[title='Verified']")
+                    follower_info['is_verified'] = len(verified_badges) > 0
                 except:
                     pass
                 
-                # Create follower data
-                follower_data = {
-                    "username": username,
-                    "fullname": fullname,
-                    "profile_pic_url": profile_pic_url,
-                    "is_verified": is_verified,
-                    "collected_at": datetime.now().isoformat(),
-                    "detailed_profile_analyzed": False
-                }
+                # Try to get profile picture URL
+                try:
+                    img_elements = item.find_elements(By.TAG_NAME, "img")
+                    for img in img_elements:
+                        src = img.get_attribute("src")
+                        if src and ("instagram.com" in src or "cdninstagram.com" in src):
+                            follower_info['profile_pic_url'] = src
+                            break
+                except:
+                    pass
                 
-                self.followers_data.append(follower_data)
+                # Add to our list
+                self.followers_data.append(follower_info)
+                
+                if len(self.followers_data) % 10 == 0:
+                    logger.info(f"Processed {len(self.followers_data)} followers")
                 
             except Exception as e:
-                logger.debug(f"Error processing follower item: {str(e)}")
+                logger.warning(f"Error processing follower item: {str(e)}")
                 continue
     
     def _extract_followers_directly(self):
@@ -1276,4 +1383,206 @@ class FollowerScraper(ScraperBase):
                 "categories": categories
             }, f, indent=2)
         
-        logger.info(f"Categorized follower data saved to {filepath}") 
+        logger.info(f"Categorized follower data saved to {filepath}")
+    
+    def _is_making_scrolling_progress(self, follower_list, previous_height, previous_position):
+        """
+        Check if we're making progress in scrolling by comparing heights and positions.
+        
+        Args:
+            follower_list: The follower list container element
+            previous_height: The previous scrollHeight of the container
+            previous_position: The previous scrollTop position
+            
+        Returns:
+            tuple: (is_making_progress, current_height, current_position)
+        """
+        try:
+            # Get current scroll height and position
+            current_height = self.browser.execute_script("return arguments[0].scrollHeight", follower_list)
+            current_position = self.browser.execute_script("return arguments[0].scrollTop", follower_list)
+            
+            # Check if height has increased (new content loaded)
+            height_increased = current_height > previous_height
+            
+            # Check if position has changed (scrolling occurred)
+            position_changed = abs(current_position - previous_position) > 10
+            
+            # Log debug information
+            if height_increased:
+                logger.debug(f"Scroll height increased: {previous_height} -> {current_height} (+{current_height - previous_height}px)")
+            
+            if position_changed:
+                logger.debug(f"Scroll position changed: {previous_position} -> {current_position}")
+            
+            # We're making progress if either height increased or position changed significantly
+            is_making_progress = height_increased or position_changed
+            
+            return is_making_progress, current_height, current_position
+            
+        except Exception as e:
+            logger.warning(f"Error checking scroll progress: {str(e)}")
+            return False, previous_height, previous_position
+    
+    def _is_at_end_of_follower_list(self, follower_list):
+        """
+        Check if we've reached the end of the follower list by looking for end indicators.
+        
+        Args:
+            follower_list: The follower list container element
+            
+        Returns:
+            bool: True if we've reached the end, False otherwise
+        """
+        try:
+            # Check for common end-of-list indicators
+            
+            # 1. Check if a loading spinner exists but is not visible (finished loading)
+            spinners = self.browser.find_elements(By.CSS_SELECTOR, 
+                "div[role='dialog'] circle, div[role='dialog'] svg[aria-label='Loading...'], div.W1Bne")
+            
+            if spinners:
+                for spinner in spinners:
+                    try:
+                        if not spinner.is_displayed():
+                            logger.info("Found hidden loading spinner, indicating end of list")
+                            return True
+                    except:
+                        pass
+            
+            # 2. Check for "Suggested" section that appears at the end of follower lists
+            suggested_headers = self.browser.find_elements(By.XPATH, 
+                "//*[contains(text(), 'Suggested') or contains(text(), 'Disarankan')]")
+            
+            if suggested_headers:
+                for header in suggested_headers:
+                    try:
+                        if header.is_displayed():
+                            logger.info("Found 'Suggested' section, indicating end of list")
+                            return True
+                    except:
+                        pass
+            
+            # 3. Check for "See All Suggestions" button at the end
+            see_all_buttons = self.browser.find_elements(By.XPATH, 
+                "//*[contains(text(), 'See All') or contains(text(), 'Lihat Semua')]")
+            
+            if see_all_buttons:
+                for button in see_all_buttons:
+                    try:
+                        if button.is_displayed():
+                            logger.info("Found 'See All' button, indicating end of list")
+                            return True
+                    except:
+                        pass
+            
+            # 4. Check if we've scrolled to the bottom
+            try:
+                scroll_position = self.browser.execute_script("return arguments[0].scrollTop", follower_list)
+                scroll_height = self.browser.execute_script("return arguments[0].scrollHeight", follower_list)
+                client_height = self.browser.execute_script("return arguments[0].clientHeight", follower_list)
+                
+                # If we're at the bottom (with a small margin of error)
+                if scroll_position + client_height >= scroll_height - 10:
+                    logger.info("Scrolled to bottom of list")
+                    return True
+            except:
+                pass
+            
+            return False
+            
+        except Exception as e:
+            logger.warning(f"Error checking for end of follower list: {str(e)}")
+            return False
+    
+    def _try_click_load_more_button(self, follower_list):
+        """
+        Try to find and click a "Load More" or "Show More" button if it exists.
+        
+        Args:
+            follower_list: The follower list container element
+            
+        Returns:
+            bool: True if a button was found and clicked, False otherwise
+        """
+        try:
+            # Look for various "load more" button patterns
+            load_more_selectors = [
+                "button[type='button']",
+                "a[role='button']",
+                "div[role='button']",
+                "span[role='button']"
+            ]
+            
+            load_more_texts = [
+                "Load more",
+                "Show more",
+                "See more",
+                "View more",
+                "Muat lainnya",  # Indonesian
+                "Lihat lainnya",  # Indonesian
+                "Tampilkan lainnya"  # Indonesian
+            ]
+            
+            # First try to find buttons with specific text
+            for selector in load_more_selectors:
+                elements = self.browser.find_elements(By.CSS_SELECTOR, selector)
+                for element in elements:
+                    try:
+                        text = element.text.strip().lower()
+                        if any(load_text.lower() in text for load_text in load_more_texts):
+                            logger.info(f"Found load more button with text: {text}")
+                            element.click()
+                            self.human_behavior.random_sleep(1, 2)
+                            return True
+                    except:
+                        continue
+            
+            # Try XPath approach for text matching
+            for load_text in load_more_texts:
+                xpath = f"//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{load_text.lower()}')]"
+                elements = self.browser.find_elements(By.XPATH, xpath)
+                for element in elements:
+                    try:
+                        if element.is_displayed():
+                            logger.info(f"Found load more button with XPath for text: {load_text}")
+                            element.click()
+                            self.human_behavior.random_sleep(1, 2)
+                            return True
+                    except:
+                        continue
+            
+            return False
+            
+        except Exception as e:
+            logger.warning(f"Error trying to click load more button: {str(e)}")
+            return False
+    
+    def _save_followers_data_checkpoint(self):
+        """
+        Save the current follower data to a checkpoint file to prevent data loss.
+        """
+        try:
+            if not self.followers_data:
+                logger.debug("No follower data to save for checkpoint")
+                return
+            
+            # Create checkpoint directory if it doesn't exist
+            checkpoint_dir = os.path.join("data", "followers", "checkpoints")
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            
+            # Create checkpoint filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            checkpoint_file = os.path.join(
+                checkpoint_dir, 
+                f"{self.target_username}_followers_checkpoint_{timestamp}.json"
+            )
+            
+            # Save the data
+            with open(checkpoint_file, 'w', encoding='utf-8') as f:
+                json.dump(self.followers_data, f, ensure_ascii=False, indent=4)
+            
+            logger.info(f"Saved checkpoint with {len(self.followers_data)} followers to {checkpoint_file}")
+            
+        except Exception as e:
+            logger.warning(f"Error saving follower data checkpoint: {str(e)}") 
