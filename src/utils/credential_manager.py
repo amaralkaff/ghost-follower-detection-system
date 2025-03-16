@@ -84,7 +84,13 @@ class CredentialManager:
         try:
             # Get master password if not provided
             if master_password is None:
-                master_password = getpass.getpass("Enter master password for credential encryption: ")
+                # Check if MASTER_PASSWORD is in environment variables
+                env_master_password = os.getenv("MASTER_PASSWORD")
+                if env_master_password:
+                    master_password = env_master_password
+                    logger.info("Using master password from environment variables")
+                else:
+                    master_password = getpass.getpass("Enter master password for credential encryption: ")
             
             # Generate or load salt
             salt = self._load_salt()
@@ -220,4 +226,56 @@ class CredentialManager:
                 "two_factor_enabled": two_factor_enabled
             }
         
-        return None 
+        return None
+        
+    def auto_setup_from_env(self):
+        """
+        Automatically set up credentials from environment variables.
+        This will use MASTER_PASSWORD from env if available, or create a default one.
+        
+        Returns:
+            bool: True if setup successful, False otherwise
+        """
+        try:
+            # Check if credentials file already exists
+            if os.path.exists(CREDENTIALS_FILE):
+                # Try to use master password from environment
+                master_password = os.getenv("MASTER_PASSWORD")
+                if master_password:
+                    if self.setup_encryption(master_password):
+                        credentials = self.get_credentials()
+                        if credentials:
+                            logger.info(f"Successfully loaded credentials for {credentials['username']} using environment master password")
+                            return True
+                
+                logger.info("Encrypted credentials exist but couldn't be loaded with environment master password")
+                return False
+            
+            # No credentials file, create one from environment variables
+            master_password = os.getenv("MASTER_PASSWORD")
+            if not master_password:
+                # Use a default master password based on a hash of the username and password
+                username = os.getenv("INSTAGRAM_USERNAME", "")
+                password = os.getenv("INSTAGRAM_PASSWORD", "")
+                if username and password:
+                    master_password = f"default_{hash(username + password) % 10000}"
+                    logger.info("Created default master password from credentials")
+                else:
+                    logger.error("No master password in environment and no credentials to create default")
+                    return False
+            
+            # Set up encryption with the master password
+            if not self.setup_encryption(master_password):
+                logger.error("Failed to set up encryption with environment master password")
+                return False
+            
+            # Store credentials from environment
+            if not self.store_credentials_from_env():
+                logger.error("Failed to store credentials from environment")
+                return False
+            
+            logger.info("Successfully set up credentials from environment variables")
+            return True
+        except Exception as e:
+            logger.error(f"Error in auto setup: {str(e)}")
+            return False 

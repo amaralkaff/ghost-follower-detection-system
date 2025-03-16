@@ -12,6 +12,11 @@ def setup_credentials():
     logger = get_default_logger()
     credential_manager = CredentialManager()
     
+    # Try automatic setup from environment variables first
+    if credential_manager.auto_setup_from_env():
+        logger.info("Credentials automatically set up from environment variables")
+        return True, os.getenv("MASTER_PASSWORD")
+    
     # Check if credentials file exists
     credentials_file = os.path.join("credentials", "encrypted_credentials.json")
     
@@ -34,18 +39,28 @@ def setup_credentials():
     # No credentials file or user wants to create new one
     logger.info("Setting up new encrypted credentials")
     
-    # Get Instagram credentials
-    username = input("Enter Instagram username: ")
-    password = getpass.getpass("Enter Instagram password: ")
-    two_factor = input("Is two-factor authentication enabled? (y/n): ").lower() == 'y'
+    # Try to get credentials from environment variables
+    username = os.getenv("INSTAGRAM_USERNAME")
+    password = os.getenv("INSTAGRAM_PASSWORD")
+    two_factor = os.getenv("INSTAGRAM_2FA_ENABLED", "True").lower() == 'true'
+    
+    # If not in environment, prompt user
+    if not username:
+        username = input("Enter Instagram username: ")
+    if not password:
+        password = getpass.getpass("Enter Instagram password: ")
+    if os.getenv("INSTAGRAM_2FA_ENABLED") is None:
+        two_factor = input("Is two-factor authentication enabled? (y/n): ").lower() == 'y'
     
     # Get master password for encryption
-    master_password = getpass.getpass("Create a master password for credential encryption: ")
-    confirm_password = getpass.getpass("Confirm master password: ")
-    
-    if master_password != confirm_password:
-        logger.error("Passwords do not match")
-        return False, None
+    master_password = os.getenv("MASTER_PASSWORD")
+    if not master_password:
+        master_password = getpass.getpass("Create a master password for credential encryption: ")
+        confirm_password = getpass.getpass("Confirm master password: ")
+        
+        if master_password != confirm_password:
+            logger.error("Passwords do not match")
+            return False, None
     
     # Set up encryption
     if not credential_manager.setup_encryption(master_password):
