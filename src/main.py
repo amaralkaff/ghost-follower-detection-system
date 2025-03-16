@@ -8,8 +8,11 @@ from src.utils.logger import get_default_logger
 from src.scrapers.login import login_to_instagram
 from src.utils.credential_manager import CredentialManager
 from src.scrapers.follower_scraper import FollowerScraper
+from src.scrapers.engagement_scraper import EngagementScraper
 from src.data.follower_data import FollowerDataManager
+from src.data.engagement_data import EngagementDataProcessor
 from datetime import datetime
+from src.utils.human_behavior import HumanBehaviorSimulator
 
 # Get logger
 logger = get_default_logger()
@@ -119,16 +122,97 @@ def collect_follower_data(browser, target_username=None, skip_profile_analysis=T
         logger.error(f"Error collecting follower data: {str(e)}")
         return None
 
+def collect_engagement_data(browser, target_username=None):
+    """
+    Collect engagement data using the EngagementScraper.
+    
+    Args:
+        browser: Selenium browser instance
+        target_username: Target username to analyze (if None, uses logged-in user)
+        
+    Returns:
+        Dictionary containing engagement data or None on failure
+    """
+    logger.info(f"Starting engagement data collection for {target_username or 'logged-in user'}")
+    
+    try:
+        # Initialize engagement scraper
+        engagement_scraper = EngagementScraper(target_username)
+        engagement_scraper.set_browser(browser)  # Use existing browser instance
+        
+        # Run the scraper
+        engagement_data = engagement_scraper.run()
+        
+        if engagement_data:
+            logger.info("Engagement data collection completed successfully")
+            return engagement_data
+        else:
+            logger.error("Failed to collect engagement data")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error collecting engagement data: {str(e)}")
+        return None
+
+def analyze_engagement_data(target_username=None):
+    """
+    Analyze engagement data and identify ghost followers.
+    
+    Args:
+        target_username: Target username to analyze (if None, uses logged-in user)
+        
+    Returns:
+        Dictionary containing analysis results or None on failure
+    """
+    logger.info(f"Starting engagement data analysis for {target_username or 'logged-in user'}")
+    
+    try:
+        # Initialize engagement data processor
+        processor = EngagementDataProcessor(target_username)
+        
+        # Load data
+        if not processor.load_data():
+            logger.error("Failed to load engagement data")
+            return None
+        
+        # Calculate engagement metrics
+        if not processor.calculate_engagement_metrics():
+            logger.error("Failed to calculate engagement metrics")
+            return None
+        
+        # Identify ghost followers
+        ghost_followers = processor.identify_ghost_followers()
+        
+        # Categorize ghost followers
+        categorized_ghosts = processor.categorize_ghost_followers()
+        
+        # Export data to CSV
+        export_files = processor.export_engagement_data()
+        
+        logger.info("Engagement data analysis completed successfully")
+        
+        return {
+            'ghost_followers': ghost_followers,
+            'categorized_ghosts': categorized_ghosts,
+            'export_files': export_files
+        }
+        
+    except Exception as e:
+        logger.error(f"Error analyzing engagement data: {str(e)}")
+        return None
+
 def main():
     """Main entry point for the application."""
     # Set up argument parser
     parser = argparse.ArgumentParser(description="Instagram Ghost Follower Detection System")
     parser.add_argument("--target", "-t", help="Target username to analyze (if not provided, uses logged-in user)")
     parser.add_argument("--collect-followers", action="store_true", help="Collect follower data")
+    parser.add_argument("--collect-engagement", action="store_true", help="Collect engagement data")
     parser.add_argument("--analyze-engagement", action="store_true", help="Analyze engagement data")
     parser.add_argument("--detect-ghosts", action="store_true", help="Detect ghost followers")
     parser.add_argument("--report", action="store_true", help="Generate report")
     parser.add_argument("--all", action="store_true", help="Run all steps")
+    parser.add_argument("--simulate", action="store_true", help="Simulate engagement data instead of collecting it")
     args = parser.parse_args()
     
     # If no arguments provided, show help
@@ -136,52 +220,101 @@ def main():
         parser.print_help()
         return
     
-    # Set up credentials
-    credentials_setup, master_password = setup_credentials()
-    if not credentials_setup:
-        logger.error("Failed to set up credentials. Exiting.")
-        return
+    # Check if only simulation and analysis are requested
+    simulation_only = args.simulate and (args.analyze_engagement or args.detect_ghosts) and not (args.collect_followers or args.collect_engagement)
     
-    # Set up browser
-    browser = setup_browser()
-    if not browser:
-        logger.error("Failed to set up browser. Exiting.")
-        return
-    
-    try:
-        # Login to Instagram
-        login_successful = login_to_instagram(browser, use_encrypted_credentials=True, master_password=master_password)
-        
-        if not login_successful:
-            logger.error("Login failed. Exiting.")
+    # Set up credentials (skip if only simulation and analysis are requested)
+    if not simulation_only:
+        credentials_setup, master_password = setup_credentials()
+        if not credentials_setup:
+            logger.error("Failed to set up credentials. Exiting.")
             return
         
-        logger.info("Login successful")
+        # Set up browser
+        browser = setup_browser()
+        if not browser:
+            logger.error("Failed to set up browser. Exiting.")
+            return
+    else:
+        browser = None
+        master_password = None
+    
+    try:
+        # Login to Instagram (skip if only simulation and analysis are requested)
+        if not simulation_only:
+            login_successful = login_to_instagram(browser, use_encrypted_credentials=True, master_password=master_password)
+            
+            if not login_successful:
+                logger.error("Login failed. Exiting.")
+                return
+            
+            logger.info("Login successful")
         
         # Determine which steps to run
         run_all = args.all
         collect_followers = args.collect_followers or run_all
+        collect_engagement = args.collect_engagement or run_all
         analyze_engagement = args.analyze_engagement or run_all
         detect_ghosts = args.detect_ghosts or run_all
         generate_report = args.report or run_all
+        simulate = args.simulate
         
         # Get target username
         target_username = args.target
         
         # Collect follower data if requested
-        if collect_followers:
+        if collect_followers and browser:
             followers_data = collect_follower_data(browser, target_username)
             if not followers_data:
                 logger.warning("No follower data collected")
         
-        # Placeholder for future steps
+        # Collect or simulate engagement data if requested
+        if collect_engagement:
+            if simulate:
+                # Simulate engagement data
+                logger.info(f"Simulating engagement data for {target_username}")
+                engagement_scraper = EngagementScraper(target_username)
+                engagement_data = engagement_scraper.simulate_engagement_data()
+                if not engagement_data:
+                    logger.warning("Failed to simulate engagement data")
+            elif browser:
+                # Collect real engagement data
+                engagement_data = collect_engagement_data(browser, target_username)
+                if not engagement_data:
+                    logger.warning("No engagement data collected")
+        elif simulate and not collect_engagement:
+            # If --simulate is specified without --collect-engagement
+            logger.info(f"Simulating engagement data for {target_username}")
+            engagement_scraper = EngagementScraper(target_username)
+            engagement_data = engagement_scraper.simulate_engagement_data()
+            if not engagement_data:
+                logger.warning("Failed to simulate engagement data")
+        
+        # Analyze engagement data if requested
         if analyze_engagement:
-            logger.info("Engagement analysis not yet implemented")
+            analysis_results = analyze_engagement_data(target_username)
+            if not analysis_results:
+                logger.warning("Engagement analysis failed")
+            else:
+                # Log some basic stats
+                ghost_followers = analysis_results.get('ghost_followers', {}).get('ghost_followers', {})
+                categorized = analysis_results.get('categorized_ghosts', {})
+                
+                logger.info(f"Found {len(ghost_followers)} ghost followers")
+                logger.info(f"Categorized as: {len(categorized.get('definite_ghosts', {}))} definite, "
+                           f"{len(categorized.get('probable_ghosts', {}))} probable, "
+                           f"{len(categorized.get('possible_ghosts', {}))} possible")
         
-        if detect_ghosts:
-            logger.info("Ghost follower detection not yet implemented")
+        # Detect ghost followers if requested
+        if detect_ghosts and not analyze_engagement:
+            # If analyze_engagement was not run, run it now
+            analysis_results = analyze_engagement_data(target_username)
+            if not analysis_results:
+                logger.warning("Ghost follower detection failed")
         
+        # Generate report if requested
         if generate_report:
+            # Placeholder for report generation
             logger.info("Report generation not yet implemented")
         
         logger.info("All requested operations completed")

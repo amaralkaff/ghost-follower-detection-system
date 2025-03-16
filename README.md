@@ -41,6 +41,32 @@ Alternatively, you can use the secure credential storage system which will promp
 python -m src.main
 ```
 
+### 6. Command Line Options
+The application supports several command line options:
+
+```bash
+# Show help
+python -m src.main --help
+
+# Collect follower data
+python -m src.main --collect-followers --target <username>
+
+# Collect engagement data
+python -m src.main --collect-engagement --target <username>
+
+# Simulate engagement data (for testing or development)
+python -m src.main --simulate --target <username>
+
+# Analyze engagement data and detect ghost followers
+python -m src.main --analyze-engagement --target <username>
+
+# Run all steps (collect followers, engagement, and analyze)
+python -m src.main --all --target <username>
+
+# Simulate data and analyze without browser automation
+python -m src.main --simulate --analyze-engagement --target <username>
+```
+
 ## Project Structure
 ```
 ├── data/                  # Data storage directory
@@ -129,23 +155,27 @@ python -m src.main
   - [x] Document follower metadata in structured format
 
 ### Phase 5: Engagement Data Collection
-- [ ] Create post interaction scraper:
-  - [ ] Navigate to your recent posts
-  - [ ] Extract like lists and compare against followers
-  - [ ] Collect comment data and analyze commenter usernames
-  - [ ] Track post view counts (if available)
-- [ ] Implement story view analyzer:
-  - [ ] Access story view lists from recent stories
-  - [ ] Extract usernames from story viewers
-  - [ ] Calculate story view rate for each follower
-- [ ] Develop reel engagement tracker:
-  - [ ] Navigate to recent reels
-  - [ ] Collect like and comment data
-  - [ ] Track reel view counts (if available)
-- [ ] Create online activity monitor:
-  - [ ] Detect "Active Now" status of followers
-  - [ ] Track timing patterns of follower activity
-  - [ ] Document last seen information when available
+- [x] Create post interaction scraper:
+  - [x] Navigate to your recent posts
+  - [x] Extract like lists and compare against followers
+  - [x] Collect comment data and analyze commenter usernames
+  - [x] Track post view counts (if available)
+- [x] Implement story view analyzer:
+  - [x] Access story view lists from recent stories
+  - [x] Extract usernames from story viewers
+  - [x] Calculate story view rate for each follower
+- [x] Develop reel engagement tracker:
+  - [x] Navigate to recent reels
+  - [x] Collect like and comment data
+  - [x] Track reel view counts (if available)
+- [x] Create online activity monitor:
+  - [x] Detect "Active Now" status of followers
+  - [x] Track timing patterns of follower activity
+  - [x] Document last seen information when available
+- [x] Implement simulation mode for testing:
+  - [x] Generate realistic simulated engagement data
+  - [x] Support development and testing without API access
+  - [x] Create configurable simulation parameters
 
 ### Phase 6: Data Integration and Storage
 - [ ] Design database schema:

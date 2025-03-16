@@ -15,6 +15,42 @@ from src.config.config import (
     REQUEST_TIMEOUT
 )
 
+def get_user_agent():
+    """
+    Get a user agent string. Uses the configured USER_AGENT or returns a common one.
+    
+    Returns:
+        str: A user agent string
+    """
+    if USER_AGENT:
+        return USER_AGENT
+    
+    # List of common user agents
+    user_agents = [
+        # Chrome on Windows
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        # Chrome on macOS
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        # Firefox on Windows
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0",
+        # Safari on macOS
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15",
+        # Edge on Windows
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59",
+        # Chrome on iOS
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/91.0.4472.80 Mobile/15E148 Safari/604.1",
+        # Safari on iOS
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1",
+        # Chrome on Android
+        "Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36",
+        # Firefox on Android
+        "Mozilla/5.0 (Android 11; Mobile; rv:68.0) Gecko/68.0 Firefox/89.0",
+        # iPad
+        "Mozilla/5.0 (iPad; CPU OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1"
+    ]
+    
+    return random.choice(user_agents)
+
 def get_random_proxy():
     """Get a random proxy from the proxy list file."""
     if not USE_PROXY:
@@ -39,7 +75,7 @@ def setup_browser():
     options = uc.ChromeOptions()
     
     # Set user agent
-    options.add_argument(f'user-agent={USER_AGENT}')
+    options.add_argument(f'user-agent={get_user_agent()}')
     
     # Add proxy if enabled
     proxy = get_random_proxy()
