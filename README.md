@@ -5,24 +5,18 @@ This system uses web scraping and machine learning to identify and report "ghost
 
 ## Setup Instructions
 
-### 1. Clone the Repository
-```bash
-git clone <repository-url>
-cd instagram-ghost-follower-detection
-```
-
-### 2. Create a Virtual Environment
+### 1. Create a Virtual Environment
 ```bash
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-### 3. Install Dependencies
+### 2. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables
+### 3. Configure Environment Variables
 Create a `.env` file in the root directory based on the provided `.env.example`:
 ```bash
 cp .env.example .env
@@ -36,12 +30,12 @@ INSTAGRAM_PASSWORD=your_password
 
 Alternatively, you can use the secure credential storage system which will prompt you to set up encrypted credentials on first run.
 
-### 5. Run the Application
+### 4. Run the Application
 ```bash
 python -m src.main
 ```
 
-### 6. Command Line Options
+### 5. Command Line Options
 The application supports several command line options:
 
 ```bash
