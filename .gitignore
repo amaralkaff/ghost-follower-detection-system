@@ -40,9 +40,20 @@ cookies/
 *.sqlite
 *.db
 *.csv
-*.json
 *.xlsx
 *.xls
+
+# Debug files and sensitive data
+debug_*.html
+debug_*.json
+debug_*.js
+debug_page_source.html
+debug_shared_data.json
+data/sessions/
+data/debug/
+logs/
+screenshots/
+*.pkl
 
 # OS specific files
 .DS_Store
@@ -81,4 +92,10 @@ sdist/
 var/
 *.egg-info/
 .installed.cfg
-*.egg 
+*.egg
+
+# Shell scripts
+*.sh
+
+# Project specific
+proxy_performance.json 
